@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QR → WhatsApp Messenger</title>
+  <style>
+    :root{
+      --bg:#f3f7fb; --card:#ffffff; --accent:#0a84ff; --muted:#666;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%; margin:0; background:var(--bg); color:#0b1220}
+    .wrap{max-width:720px; margin:28px auto; padding:18px;}
+    .card{background:var(--card); border-radius:12px; box-shadow:0 6px 18px rgba(12,25,40,0.08); padding:16px;}
+    h1{font-size:20px; margin:6px 0 12px;}
+    p.small{color:var(--muted); margin:0 0 12px; font-size:13px;}
+    video{width:100%; border-radius:8px; background:#000; max-height:60vh; object-fit:cover;}
+    .controls{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+    button{background:var(--accent); color:#fff; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-weight:600;}
+    button.ghost{background:transparent; color:var(--accent); border:1px solid rgba(10,132,255,0.14);}
+    .row{display:flex; gap:8px; align-items:center;}
+    .label{font-size:13px; color:var(--muted); min-width:110px}
+    input, select, textarea{padding:10px; border-radius:8px; border:1px solid #e6eef9; width:100%; box-sizing:border-box}
+    .info{margin-top:12px; font-size:14px}
+    .found{margin-top:10px; padding:10px; background:#f0ffef; border-radius:8px; color:#0a6a28}
+    .error{margin-top:10px; padding:10px; background:#fff0f0; border-radius:8px; color:#7a1a1a}
+    .smallbtn{padding:6px 8px; font-size:13px; border-radius:6px}
+    footer{margin-top:14px; color:var(--muted); font-size:13px; text-align:center}
+    @media(min-width:760px){ h1{font-size:22px} .row{align-items:flex-start}}
+  </style>
+</head>
+<body>
+  <div class="wrap card">
+    <h1>QR → WhatsApp</h1>
+    <p class="small">Point your camera at a QR code that contains a phone number. The app will open WhatsApp to message that number. Works on mobile and desktop (WhatsApp Web).</p>
+
+    <div id="cameraCard" class="card" style="padding:12px;">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="canvas" style="display:none"></canvas>
+
+      <div class="controls">
+        <button id="startBtn">Start Camera</button>
+        <button id="stopBtn" class="ghost">Stop</button>
+        <button id="scanOnceBtn" class="ghost">Scan Once</button>
+        <button id="toggleTorch" class="ghost" style="display:none">Toggle Torch</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px;">
+        <div>
+          <label class="label">Default country code</label>
+          <input id="countryCode" placeholder="e.g. 91 (India) or +1" value="91">
+        </div>
+        <div>
+          <label class="label">Prefilled message</label>
+          <input id="messageText" placeholder="Hello, I saw your QR..." value="Hi! This is a message via QR scanner.">
+        </div>
+      </div>
+
+      <div style="margin-top:8px;">
+        <label class="label">Scanned number (editable)</label>
+        <div style="display:flex; gap:8px;">
+          <input id="scannedNumber" placeholder="Waiting for QR..." >
+          <button id="openWhatsApp" class="smallbtn">Open WhatsApp</button>
+        </div>
+      </div>
+
+      <div id="status" class="info">Status: <span id="statusText">idle</span></div>
+      <div id="foundBox" style="display:none" class="found"></div>
+      <div id="errorBox" style="display:none" class="error"></div>
+    </div>
+
+    <footer>Note: Browsers require HTTPS for camera access. Works best on mobile. If WhatsApp doesn't open, copy the cleaned number and open WhatsApp manually.</footer>
+  </div>
+
+  <!-- jsQR library (lightweight) -->
+  <script src="https://unpkg.com/jsqr/dist/jsQR.js"></script>
+
+  <script>
+    // Elements
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const scanOnceBtn = document.getElementById('scanOnceBtn');
+    const statusText = document.getElementById('statusText');
+    const foundBox = document.getElementById('foundBox');
+    const errorBox = document.getElementById('errorBox');
+    const scannedNumberInput = document.getElementById('scannedNumber');
+    const openWhatsAppBtn = document.getElementById('openWhatsApp');
+    const countryCodeInput = document.getElementById('countryCode');
+    const messageTextInput = document.getElementById('messageText');
+    const toggleTorchBtn = document.getElementById('toggleTorch');
+
+    let stream = null;
+    let scanning = false;
+    let scanInterval = null;
+    let track = null;
+    let torchOn = false;
+
+    function setStatus(s){
+      statusText.textContent = s;
+    }
+    function showFound(msg){
+      foundBox.style.display='block';
+      foundBox.textContent = msg;
+      errorBox.style.display='none';
+    }
+    function showError(msg){
+      errorBox.style.display='block';
+      errorBox.textContent = msg;
+      foundBox.style.display='none';
+    }
+
+    // Clean phone number: remove non-digits; allow leading + (we'll handle separately)
+    function cleanNumber(raw){
+      if(!raw) return '';
+      // Some QR codes may include "tel:+919876543210" or "tel:9876543210" or just digits
+      raw = raw.trim();
+      // If it contains 'tel:' remove it
+      raw = raw.replace(/^tel:/i, '');
+      // If it contains 'whatsapp:' remove
+      raw = raw.replace(/^whatsapp:/i, '');
+      // If it contains 'https://wa.me/' or 'wa.me/' extract number
+      raw = raw.replace(/https?:\/\/(www\.)?wa\.me\//i, '');
+      raw = raw.replace(/https?:\/\/(www\.)?api\.whatsapp\.com\/send\?phone=/i, '');
+      // Remove all non-digit and non-plus
+      let plus = raw.includes('+') ? '+' : '';
+      let digits = raw.replace(/[^0-9]/g, '');
+      if(!digits) return '';
+      // If plus exists and digits start with country (rare), preserve
+      return (plus ? '+' : '') + digits;
+    }
+
+    function ensureE164(number, defaultCountry){
+      // If number starts with +, assume it is E.164
+      if(!number) return '';
+      number = number.trim();
+      if(number.startsWith('+')) return number.replace(/\D/g,'');
+      // If number already seems long (10+), just prefix default country code if provided
+      const digits = number.replace(/\D/g,'');
+      if(digits.length >= 10 && digits.length <= 15) {
+        if(defaultCountry){
+          // normalize defaultCountry (strip +)
+          let cc = (''+defaultCountry).replace(/\D/g,'');
+          return cc + digits;
+        } else {
+          return digits;
+        }
+      }
+      // fallback: prefix default country
+      if(defaultCountry){
+        let cc = (''+defaultCountry).replace(/\D/g,'');
+        return cc + digits;
+      }
+      return digits;
+    }
+
+    async function startCamera(){
+      if(scanning) return;
+      setStatus('starting camera...');
+      foundBox.style.display='none';
+      errorBox.style.display='none';
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
+        video.srcObject = stream;
+        track = stream.getVideoTracks()[0];
+        // show torch toggle if supported
+        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+        if(capabilities.torch) {
+          toggleTorchBtn.style.display = 'inline-block';
+        } else {
+          toggleTorchBtn.style.display = 'none';
+        }
+        scanning = true;
+        setStatus('camera running — scanning for QR...');
+        // start continuous scan
+        scanInterval = requestAnimationFrame(tick);
+      } catch(err){
+        console.error(err);
+        showError('Camera permission denied or no camera available. ' + (err.message||''));
+        setStatus('error');
+      }
+    }
+
+    function stopCamera(){
+      if(!scanning) return;
+      scanning = false;
+      setStatus('stopped');
+      if(scanInterval) cancelAnimationFrame(scanInterval);
+      if(stream){
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      video.srcObject = null;
+    }
+
+    function drawToCanvas(){
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if(w === 0 || h === 0) return null;
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, w, h);
+      return ctx.getImageData(0,0,w,h);
+    }
+
+    function tick(){
+      if(!scanning) return;
+      try {
+        const imageData = drawToCanvas();
+        if(imageData){
+          const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+          if(code && code.data){
+            // We found QR content
+            const raw = code.data;
+            const cleaned = cleanNumber(raw);
+            if(cleaned){
+              const cc = countryCodeInput.value || '';
+              const e164 = ensureE164(cleaned, cc);
+              scannedNumberInput.value = e164;
+              showFound('Scanned: ' + raw + ' → ' + e164);
+              setStatus('scanned');
+              // Stop camera automatically for convenience (comment out if you want continuous scanning)
+              // stopCamera();
+            } else {
+              showError('QR found but no phone number detected ('+raw+').');
+            }
+          }
+        }
+      } catch (e){
+        console.error(e);
+      }
+      scanInterval = requestAnimationFrame(tick);
+    }
+
+    // One-off scan (useful if camera is on but you want a single snap)
+    function scanOnce(){
+      const imageData = drawToCanvas();
+      if(!imageData) { showError('No video frame available'); return; }
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+      if(code && code.data){
+        const raw = code.data;
+        const cleaned = cleanNumber(raw);
+        if(cleaned){
+          const cc = countryCodeInput.value || '';
+          const e164 = ensureE164(cleaned, cc);
+          scannedNumberInput.value = e164;
+          showFound('Scanned: ' + raw + ' → ' + e164);
+          setStatus('scanned');
+        } else {
+          showError('QR found but no phone number detected ('+raw+').');
+        }
+      } else {
+        showError('No QR code detected — try moving camera more steadily or increasing lighting.');
+      }
+    }
+
+    // Compose WhatsApp link and open
+    function openWhatsApp(){
+      let rawNum = scannedNumberInput.value.trim();
+      if(!rawNum) { showError('No number to message.'); return; }
+      // Ensure only digits and optional leading +
+      let plus = rawNum.startsWith('+') ? '+' : '';
+      let digits = rawNum.replace(/\D/g,'');
+      if(!digits){ showError('Scanned value does not contain digits.'); return; }
+      // Use E.164 style without plus in wa.me path: wa.me/<number> (no +)
+      const waNumber = digits;
+      const msg = messageTextInput.value || '';
+      const encoded = encodeURIComponent(msg);
+      const waLink = `https://wa.me/${waNumber}${encoded?('?text='+encoded):''}`;
+      // open in new tab — on mobile this will open WhatsApp app if installed
+      window.open(waLink, '_blank');
+    }
+
+    // Torch toggle (if supported)
+    async function toggleTorch(){
+      if(!track) return;
+      try {
+        torchOn = !torchOn;
+        await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+        toggleTorchBtn.textContent = torchOn ? 'Torch: ON' : 'Toggle Torch';
+      } catch(err){
+        console.warn('Torch toggle not supported', err);
+        showError('Torch not supported on this device.');
+      }
+    }
+
+    // Event bindings
+    startBtn.addEventListener('click', startCamera);
+    stopBtn.addEventListener('click', stopCamera);
+    scanOnceBtn.addEventListener('click', scanOnce);
+    openWhatsAppBtn.addEventListener('click', openWhatsApp);
+    toggleTorchBtn.addEventListener('click', toggleTorch);
+
+    // On load: quick check if camera permission already granted
+    (async function init(){
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+        showError('Your browser does not support camera access. Try Chrome, Edge, or Firefox on mobile/desktop.');
+        startBtn.disabled = true;
+        return;
+      }
+      // small UX: auto-start camera on mobile if secure origin
+      // but avoid being aggressive — keep to start button so user sees permission prompt
+      setStatus('idle');
+    })();
+
+    // Helpful: allow Enter on scanned input to open WhatsApp
+    scannedNumberInput.addEventListener('keydown', function(e){
+      if(e.key === 'Enter') openWhatsApp();
+    });
+
+    // Extra: long-press copy of scanned number (context menu could do same)
+    scannedNumberInput.addEventListener('contextmenu', function(e){
+      e.preventDefault();
+      const val = scannedNumberInput.value.trim();
+      if(val) navigator.clipboard.writeText(val).then(()=>{ showFound('Number copied to clipboard'); });
+    });
+
+  </script>
+</body>
+</html>
