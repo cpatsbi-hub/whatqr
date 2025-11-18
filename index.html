@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>QR → WhatsApp (Auto open) — YONO 2.0</title>
+  <title>QR → WhatsApp (Auto open + Custom Message)</title>
   <style>
     :root{--bg:#f6fbff;--card:#fff;--accent:#0a84ff;--muted:#556;--good:#0a7a3a}
     body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#072034;padding:18px;display:flex;justify-content:center}
-    .wrap{max-width:880px;width:100%}
-    .card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 8px 20px rgba(10,20,40,0.06)}
+    .wrap{max-width:920px;width:100%}
+    .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 8px 20px rgba(10,20,40,0.06)}
     h1{margin:0 0 8px;font-size:20px}
     p.lead{margin:0 0 12px;color:var(--muted)}
-    video{width:100%;border-radius:10px;background:#000;max-height:60vh;object-fit:cover}
+    video{width:100%;border-radius:10px;background:#000;max-height:56vh;object-fit:cover}
     .controls{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
-    input,select{padding:9px;border-radius:8px;border:1px solid #e7f0ff}
+    input,select,textarea{padding:9px;border-radius:8px;border:1px solid #e7f0ff}
+    textarea{min-height:160px;width:100%;resize:vertical;font-size:15px;line-height:1.45}
     button{background:var(--accent);color:#fff;border:none;padding:9px 12px;border-radius:8px;cursor:pointer}
     button.ghost{background:transparent;color:var(--accent);border:1px solid rgba(10,132,255,0.12)}
     .status{margin-top:10px;font-size:14px}
@@ -21,46 +22,56 @@
     .note{margin-top:10px;color:var(--muted);font-size:13px}
     .preview{white-space:pre-wrap;padding:12px;border-radius:8px;background:#fbfdff;border:1px solid #eef6ff;margin-top:12px}
     .fallback{margin-top:12px}
-    code{background:#f3f7ff;padding:2px 6px;border-radius:6px}
+    label.small{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>QR → WhatsApp (Auto open) — YONO 2.0</h1>
-      <p class="lead">Start camera, point to a QR with an Indian phone number (10 digits). The page will detect the number, prefix <code>91</code>, and open WhatsApp with the message exactly as shown (line breaks & *asterisks* preserved).</p>
+      <h1>QR → WhatsApp (Auto open) — Custom Message</h1>
+      <p class="lead">Type or paste your message below (line breaks are preserved). Then press <strong>Start Camera</strong>. When a valid Indian number (10 digits) is detected in a QR, the page will prefix <code>91</code> and open WhatsApp automatically with your message.</p>
 
-      <video id="video" autoplay playsinline></video>
-      <canvas id="canvas" style="display:none"></canvas>
+      <label class="small">Custom message (editable) — line breaks allowed</label>
+      <textarea id="messageBox" placeholder="Type your message here..."></textarea>
 
-      <div class="controls">
-        <label style="min-width:140px;color:var(--muted)">Default country code</label>
-        <input id="countryCode" value="91" style="width:120px" />
-        <button id="startBtn">Start Camera</button>
-        <button id="stopBtn" class="ghost">Stop</button>
+      <div class="row" style="margin-top:10px;">
+        <div style="min-width:140px;">
+          <label class="small">Default country code</label>
+          <input id="countryCode" value="91" style="width:120px" />
+        </div>
+        <div style="flex:1"></div>
+        <div>
+          <button id="startBtn">Start Camera</button>
+          <button id="stopBtn" class="ghost">Stop</button>
+        </div>
       </div>
 
-      <div id="status" class="status">Status: idle — press "Start Camera"</div>
+      <div style="margin-top:12px;">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none"></canvas>
+      </div>
+
+      <div id="status" class="status">Status: idle — press "Start Camera" to begin scanning.</div>
       <div id="foundBox" class="found" style="display:none"></div>
 
-      <div class="preview" id="previewArea" aria-live="polite"></div>
+      <div style="margin-top:10px;">
+        <div class="small" style="margin-bottom:6px">Preview (how your message will be sent to WhatsApp):</div>
+        <div id="previewArea" class="preview" aria-live="polite"></div>
+      </div>
 
       <div class="fallback" id="fallbackArea" style="display:none">
-        <div class="note">If automatic opening is blocked by the browser, press the button below to open WhatsApp for the detected number.</div>
+        <div class="note">If automatic opening is blocked by the browser, press this button to open WhatsApp for the detected number.</div>
         <button id="fallbackOpen">Open WhatsApp now</button>
       </div>
 
-      <div class="note">Use HTTPS or <code>http://localhost</code>. The app auto-opens only once per detection to avoid redirect loops.</div>
+      <div class="note">Use HTTPS or <code>http://localhost</code>. The page tries to open WhatsApp once per detection to avoid loops.</div>
     </div>
   </div>
 
   <!-- jsQR -->
   <script src="https://unpkg.com/jsqr/dist/jsQR.js"></script>
   <script>
-    // === Exact message received (keeps asterisks and line breaks) ===
-    const messageTemplate = `Hi,I am Digital Officer from RBO.The existing YONO app will soon be replaced by the new YONO 2.0.All staff must get familiar with the new app to handle customer complaints effectively and provide the best service.*If you face any issues, please report them to the me via WhatsApp.*Android users, Please check your email to get link or use the following link.📱 Android Download Link:https://play.google.com/apps/testing/com.sbi.yonoiOS users, please check for mail from Testflight.🔑 Referral Code: *QHxudu0*`;
-    // =================================================================
-
     // Elements
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
@@ -72,8 +83,32 @@
     const fallbackArea = document.getElementById('fallbackArea');
     const fallbackOpen = document.getElementById('fallbackOpen');
     const countryCodeInput = document.getElementById('countryCode');
+    const messageBox = document.getElementById('messageBox');
 
-    previewArea.textContent = messageTemplate;
+    // Put a sensible default message (you can edit it)
+    const defaultMessage = `Hi, 
+
+I am Digital Officer from RBO.
+
+The existing YONO app will soon be replaced by the new YONO 2.0.
+All staff must get familiar with the new app to handle customer complaints effectively and provide the best service.
+
+If you face any issues, please report them to me via WhatsApp.
+
+Android users, please check your email for the invitation or use the link below:
+📱 Android Download Link:
+https://play.google.com/apps/testing/com.sbi.yono
+
+iOS users, please check mail from TestFlight.
+
+🔑 Referral Code: QHxudu0`;
+    messageBox.value = defaultMessage;
+    previewArea.textContent = defaultMessage;
+
+    // Update preview live when message changes
+    messageBox.addEventListener('input', () => {
+      previewArea.textContent = messageBox.value;
+    });
 
     let stream = null;
     let scanning = false;
@@ -84,25 +119,25 @@
     let pendingWaLink = null;
 
     function setStatus(txt){ status.textContent = 'Status: ' + txt; }
-    function showFound(txt){ foundBox.style.display='block'; foundBox.textContent = txt; }
-    function hideFound(){ foundBox.style.display='none'; foundBox.textContent=''; }
+    function showFound(txt){ foundBox.style.display = 'block'; foundBox.textContent = txt; }
+    function hideFound(){ foundBox.style.display = 'none'; foundBox.textContent = ''; }
 
+    // Extract possible number-ish token from QR raw content
     function extractDigits(raw){
       if(!raw) return '';
       raw = String(raw).trim();
       raw = raw.replace(/^tel:/i,'').replace(/^whatsapp:/i,'');
       raw = raw.replace(/https?:\/\/(www\.)?wa\.me\//i,'').replace(/https?:\/\/(www\.)?api\.whatsapp\.com\/send\?phone=/i,'');
-      // keep plus if present
       const token = raw.replace(/[^0-9+]/g,'');
       return token;
     }
 
+    // Normalize token to wa.me digits (India-focused: 10-digit -> prefix default CC)
     function normalizeToWaNumber(token, defaultCountryCode){
       if(!token) return '';
       token = token.replace(/\s+/g,'').replace(/[-()]/g,'');
       if(token.startsWith('+')) token = token.slice(1);
       token = token.replace(/[^0-9]/g,'');
-      // remove leading zeros
       while(token.startsWith('0')) token = token.replace(/^0+/, '');
       if(token.length === 10){
         const cc = (''+defaultCountryCode).replace(/\D/g,'') || '91';
@@ -136,7 +171,7 @@
         track = stream.getVideoTracks()[0];
         scanning = true;
         setStatus('camera running — scanning for QR...');
-        // Important: this click is a user gesture — some browsers allow subsequent navigations originating from page after user gesture
+        // this start button click is a user gesture — improves chance of allowing subsequent navigation
         rafId = requestAnimationFrame(tick);
       } catch(err){
         console.error(err);
@@ -158,18 +193,19 @@
       if(alreadyOpened) return;
       alreadyOpened = true;
       stopCamera();
-      showFound('Detected number: ' + waNumber + ' — opening WhatsApp...');
-      const waLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(messageTemplate)}`;
+      const messageToSend = messageBox.value || '';
+      const waLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(messageToSend)}`;
       pendingWaLink = waLink;
-      // Try same-tab navigation first (better UX on mobile to open app)
+      showFound('Detected number: ' + waNumber + ' — opening WhatsApp...');
       try {
+        // Use location.href for better chance to open app on mobile
         window.location.href = waLink;
-        // If still on the page after short delay, show fallback
+        // Show fallback if still on page after small delay
         setTimeout(()=>{
           if(!document.hidden){
             fallbackArea.style.display = 'block';
           }
-        }, 800);
+        }, 700);
       } catch (e){
         fallbackArea.style.display = 'block';
       }
@@ -207,16 +243,19 @@
       rafId = requestAnimationFrame(tick);
     }
 
+    // fallback button action
     fallbackOpen.addEventListener('click', () => {
       if(pendingWaLink){
         window.open(pendingWaLink, '_blank');
       } else if(lastDetectedNumber){
-        window.open(`https://wa.me/${lastDetectedNumber}?text=${encodeURIComponent(messageTemplate)}`, '_blank');
+        const link = `https://wa.me/${lastDetectedNumber}?text=${encodeURIComponent(messageBox.value || '')}`;
+        window.open(link, '_blank');
       } else {
         alert('No detected number. Please scan the QR again.');
       }
     });
 
+    // Buttons
     startBtn.addEventListener('click', startCamera);
     stopBtn.addEventListener('click', stopCamera);
 
