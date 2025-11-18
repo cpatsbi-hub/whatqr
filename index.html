@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>QR → WhatsApp (Auto, India-only)</title>
+  <title>QR → WhatsApp (Auto open) — YONO 2.0</title>
   <style>
     :root{--bg:#f6fbff;--card:#fff;--accent:#0a84ff;--muted:#556;--good:#0a7a3a}
     body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#072034;padding:18px;display:flex;justify-content:center}
@@ -21,13 +21,14 @@
     .note{margin-top:10px;color:var(--muted);font-size:13px}
     .preview{white-space:pre-wrap;padding:12px;border-radius:8px;background:#fbfdff;border:1px solid #eef6ff;margin-top:12px}
     .fallback{margin-top:12px}
+    code{background:#f3f7ff;padding:2px 6px;border-radius:6px}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>QR → WhatsApp (Auto open — India numbers)</h1>
-      <p class="lead">Point camera at a QR that contains a phone number (Indian numbers without +91). The app will detect the 10-digit number, prefix <code>91</code>, stop camera and automatically open WhatsApp with the message (preserves line breaks).</p>
+      <h1>QR → WhatsApp (Auto open) — YONO 2.0</h1>
+      <p class="lead">Start camera, point to a QR with an Indian phone number (10 digits). The page will detect the number, prefix <code>91</code>, and open WhatsApp with the message exactly as shown (line breaks & *asterisks* preserved).</p>
 
       <video id="video" autoplay playsinline></video>
       <canvas id="canvas" style="display:none"></canvas>
@@ -39,45 +40,26 @@
         <button id="stopBtn" class="ghost">Stop</button>
       </div>
 
-      <div id="status" class="status">Status: idle</div>
+      <div id="status" class="status">Status: idle — press "Start Camera"</div>
       <div id="foundBox" class="found" style="display:none"></div>
 
       <div class="preview" id="previewArea" aria-live="polite"></div>
 
       <div class="fallback" id="fallbackArea" style="display:none">
-        <div class="note">Automatic opening may be blocked by some browsers. If nothing happens, press the button below to open WhatsApp for the detected number.</div>
+        <div class="note">If automatic opening is blocked by the browser, press the button below to open WhatsApp for the detected number.</div>
         <button id="fallbackOpen">Open WhatsApp now</button>
       </div>
 
-      <div class="note">Note: use HTTPS or open as <code>http://localhost</code>. On mobile, wa.me links open the WhatsApp app if installed. The app will only auto-open once per detection to prevent loops.</div>
+      <div class="note">Use HTTPS or <code>http://localhost</code>. The app auto-opens only once per detection to avoid redirect loops.</div>
     </div>
   </div>
 
   <!-- jsQR -->
   <script src="https://unpkg.com/jsqr/dist/jsQR.js"></script>
   <script>
-    // === EDIT MESSAGE TEMPLATE HERE ===
-    const messageTemplate = `Hi, 
-
-I am Digital Officer from RBO.
-
-The existing YONO app will soon be replaced by the new YONO 2.0.
-All staff must get familiar with the new app to handle customer complaints effectively and provide the best service.
-
-If you face any issues, please report them to the Digital Officer (RBO) via WhatsApp.
-
-Android users, please check for email invitation.
-
-📱 Android Download Link:
-
-https://play.google.com/apps/testing/com.sbi.yono
-
-
-iOS users, please check for email from Test flight.
-
-🔑 Referral Code: QHxudu05
-`;
-    // ==================================
+    // === Exact message received (keeps asterisks and line breaks) ===
+    const messageTemplate = `Hi,I am Digital Officer from RBO.The existing YONO app will soon be replaced by the new YONO 2.0.All staff must get familiar with the new app to handle customer complaints effectively and provide the best service.*If you face any issues, please report them to the me via WhatsApp.*Android users, Please check your email to get link or use the following link.📱 Android Download Link:https://play.google.com/apps/testing/com.sbi.yonoiOS users, please check for mail from Testflight.🔑 Referral Code: *QHxudu0*`;
+    // =================================================================
 
     // Elements
     const video = document.getElementById('video');
@@ -91,7 +73,6 @@ iOS users, please check for email from Test flight.
     const fallbackOpen = document.getElementById('fallbackOpen');
     const countryCodeInput = document.getElementById('countryCode');
 
-    // show the message preview with preserved line breaks
     previewArea.textContent = messageTemplate;
 
     let stream = null;
@@ -106,43 +87,30 @@ iOS users, please check for email from Test flight.
     function showFound(txt){ foundBox.style.display='block'; foundBox.textContent = txt; }
     function hideFound(){ foundBox.style.display='none'; foundBox.textContent=''; }
 
-    // Normalize scanned content to get digits; return '' if none
     function extractDigits(raw){
       if(!raw) return '';
       raw = String(raw).trim();
-      // wipe common prefixes
       raw = raw.replace(/^tel:/i,'').replace(/^whatsapp:/i,'');
       raw = raw.replace(/https?:\/\/(www\.)?wa\.me\//i,'').replace(/https?:\/\/(www\.)?api\.whatsapp\.com\/send\?phone=/i,'');
-      // pick first sequence of digits (with optional leading + or 0)
-      // but we'll extract all digits and decide logic below
-      const digits = raw.replace(/[^0-9+]/g,'');
-      return digits;
+      // keep plus if present
+      const token = raw.replace(/[^0-9+]/g,'');
+      return token;
     }
 
-    // Convert scanned token to digits-only string expected by wa.me (no plus)
-    // For this app we assume Indian numbers: if we get exactly 10 digits -> prefix default country code (91)
-    // If it contains leading 0 and 11 digits -> strip leading 0 and prefix 91
-    // If contains country code already (starts with 91 and length 12) we accept as-is (strip leading + if present)
     function normalizeToWaNumber(token, defaultCountryCode){
       if(!token) return '';
-      // remove spaces and dashes etc
       token = token.replace(/\s+/g,'').replace(/[-()]/g,'');
-      // remove leading +
       if(token.startsWith('+')) token = token.slice(1);
-      // remove any non-digit now
       token = token.replace(/[^0-9]/g,'');
-      // strip leading zeros
+      // remove leading zeros
       while(token.startsWith('0')) token = token.replace(/^0+/, '');
       if(token.length === 10){
-        // assume local Indian number -> prefix default country code
         const cc = (''+defaultCountryCode).replace(/\D/g,'') || '91';
         return cc + token;
       }
-      // if length 12 and starts with 91, ok
       if(token.length >= 11 && token.length <= 15){
         return token;
       }
-      // otherwise return '' (invalid)
       return '';
     }
 
@@ -150,8 +118,7 @@ iOS users, please check for email from Test flight.
       const w = video.videoWidth;
       const h = video.videoHeight;
       if(w === 0 || h === 0) return null;
-      canvas.width = w;
-      canvas.height = h;
+      canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, w, h);
       return ctx.getImageData(0,0,w,h);
@@ -160,17 +127,16 @@ iOS users, please check for email from Test flight.
     async function startCamera(){
       if(scanning) return;
       hideFound();
-      alreadyOpened = false;
-      lastDetectedNumber = null;
-      pendingWaLink = null;
+      alreadyOpened = false; lastDetectedNumber = null; pendingWaLink = null;
       fallbackArea.style.display = 'none';
-      setStatus('starting camera...');
+      setStatus('requesting camera permission...');
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
         video.srcObject = stream;
         track = stream.getVideoTracks()[0];
         scanning = true;
         setStatus('camera running — scanning for QR...');
+        // Important: this click is a user gesture — some browsers allow subsequent navigations originating from page after user gesture
         rafId = requestAnimationFrame(tick);
       } catch(err){
         console.error(err);
@@ -183,10 +149,7 @@ iOS users, please check for email from Test flight.
       if(!scanning) return;
       scanning = false;
       if(rafId) cancelAnimationFrame(rafId);
-      if(stream){
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
+      if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
       video.srcObject = null;
       setStatus('stopped');
     }
@@ -194,24 +157,20 @@ iOS users, please check for email from Test flight.
     function attemptAutoOpen(waNumber){
       if(alreadyOpened) return;
       alreadyOpened = true;
-      stopCamera(); // stop camera first
+      stopCamera();
       showFound('Detected number: ' + waNumber + ' — opening WhatsApp...');
-      // build wa.me URL (number must be digits only)
       const waLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(messageTemplate)}`;
       pendingWaLink = waLink;
-      // Try same-tab navigation first (best chance to open app on mobile)
+      // Try same-tab navigation first (better UX on mobile to open app)
       try {
-        // Use location.href; some browsers allow it. If blocked, fallback button will appear.
         window.location.href = waLink;
-        // in many browsers, the above will already navigate away; if it doesn't (blocked), show fallback
-        // show fallback after short delay
+        // If still on the page after short delay, show fallback
         setTimeout(()=>{
-          if(!document.hidden){ // still on page
+          if(!document.hidden){
             fallbackArea.style.display = 'block';
           }
-        }, 900);
+        }, 800);
       } catch (e){
-        // if immediate error, show fallback
         fallbackArea.style.display = 'block';
       }
     }
@@ -229,11 +188,10 @@ iOS users, please check for email from Test flight.
               const defaultCC = countryCodeInput.value || '91';
               const waNumber = normalizeToWaNumber(digitsToken, defaultCC);
               if(waNumber){
-                // prevent repeating same number
                 if(lastDetectedNumber !== waNumber){
                   lastDetectedNumber = waNumber;
                   attemptAutoOpen(waNumber);
-                  return; // stop processing frames (camera is stopped inside attemptAutoOpen)
+                  return;
                 }
               } else {
                 showFound('QR detected but number could not be normalized: ' + raw);
@@ -249,28 +207,22 @@ iOS users, please check for email from Test flight.
       rafId = requestAnimationFrame(tick);
     }
 
-    // fallback button action
     fallbackOpen.addEventListener('click', () => {
       if(pendingWaLink){
-        // open in new tab to ensure user can return here if needed
         window.open(pendingWaLink, '_blank');
       } else if(lastDetectedNumber){
-        const link = `https://wa.me/${lastDetectedNumber}?text=${encodeURIComponent(messageTemplate)}`;
-        window.open(link, '_blank');
+        window.open(`https://wa.me/${lastDetectedNumber}?text=${encodeURIComponent(messageTemplate)}`, '_blank');
       } else {
-        alert('No detected number available. Point camera at QR again.');
+        alert('No detected number. Please scan the QR again.');
       }
     });
 
-    // Buttons
     startBtn.addEventListener('click', startCamera);
     stopBtn.addEventListener('click', stopCamera);
 
-    // Make Stop camera on unload
     window.addEventListener('pagehide', stopCamera);
     window.addEventListener('beforeunload', stopCamera);
 
-    // Do NOT auto-start camera to avoid permission popup without user's intent
     setStatus('idle — press "Start Camera" to begin scanning.');
   </script>
 </body>
