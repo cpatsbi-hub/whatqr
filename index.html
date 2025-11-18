@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>QR → WhatsApp (Auto open + Custom Message)</title>
+  <title>QR → WhatsApp (Auto open + Editable Message)</title>
   <style>
     :root{--bg:#f6fbff;--card:#fff;--accent:#0a84ff;--muted:#556;--good:#0a7a3a}
     body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#072034;padding:18px;display:flex;justify-content:center}
@@ -11,10 +11,10 @@
     .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 8px 20px rgba(10,20,40,0.06)}
     h1{margin:0 0 8px;font-size:20px}
     p.lead{margin:0 0 12px;color:var(--muted)}
-    video{width:100%;border-radius:10px;background:#000;max-height:56vh;object-fit:cover}
+    video{width:100%;border-radius:10px;background:#000;max-height:56vh;object-fit:cover;display:block}
     .controls{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
     input,select,textarea{padding:9px;border-radius:8px;border:1px solid #e7f0ff}
-    textarea{min-height:160px;width:100%;resize:vertical;font-size:15px;line-height:1.45}
+    textarea{min-height:160px;width:100%;resize:vertical;font-size:15px;line-height:1.45;outline:none;z-index:5;position:relative;background:white}
     button{background:var(--accent);color:#fff;border:none;padding:9px 12px;border-radius:8px;cursor:pointer}
     button.ghost{background:transparent;color:var(--accent);border:1px solid rgba(10,132,255,0.12)}
     .status{margin-top:10px;font-size:14px}
@@ -24,16 +24,19 @@
     .fallback{margin-top:12px}
     label.small{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    /* make sure video does not overlap inputs on small screens */
+    .videoWrap{position:relative; z-index:1}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>QR → WhatsApp (Auto open) — Custom Message</h1>
-      <p class="lead">Type or paste your message below (line breaks are preserved). Then press <strong>Start Camera</strong>. When a valid Indian number (10 digits) is detected in a QR, the page will prefix <code>91</code> and open WhatsApp automatically with your message.</p>
+      <h1>QR → WhatsApp (Auto open) — Editable Message</h1>
+      <p class="lead">Type or paste your message below (line breaks preserved). Press <strong>Start Camera</strong>. When a valid Indian number (10 digits) is detected in a QR, the page will prefix <code>91</code> and open WhatsApp automatically with your message.</p>
 
       <label class="small">Custom message (editable) — line breaks allowed</label>
-      <textarea id="messageBox" placeholder="Type your message here..."></textarea>
+      <!-- autofocus added; ensure editable -->
+      <textarea id="messageBox" autofocus aria-label="Custom message"></textarea>
 
       <div class="row" style="margin-top:10px;">
         <div style="min-width:140px;">
@@ -47,7 +50,7 @@
         </div>
       </div>
 
-      <div style="margin-top:12px;">
+      <div style="margin-top:12px;" class="videoWrap">
         <video id="video" autoplay playsinline></video>
         <canvas id="canvas" style="display:none"></canvas>
       </div>
@@ -85,7 +88,7 @@
     const countryCodeInput = document.getElementById('countryCode');
     const messageBox = document.getElementById('messageBox');
 
-    // Put a sensible default message (you can edit it)
+    // sensible default message
     const defaultMessage = `Hi, 
 
 I am Digital Officer from RBO.
@@ -105,7 +108,7 @@ iOS users, please check mail from TestFlight.
     messageBox.value = defaultMessage;
     previewArea.textContent = defaultMessage;
 
-    // Update preview live when message changes
+    // update preview as user types
     messageBox.addEventListener('input', () => {
       previewArea.textContent = messageBox.value;
     });
@@ -113,7 +116,6 @@ iOS users, please check mail from TestFlight.
     let stream = null;
     let scanning = false;
     let rafId = null;
-    let track = null;
     let alreadyOpened = false;
     let lastDetectedNumber = null;
     let pendingWaLink = null;
@@ -122,7 +124,6 @@ iOS users, please check mail from TestFlight.
     function showFound(txt){ foundBox.style.display = 'block'; foundBox.textContent = txt; }
     function hideFound(){ foundBox.style.display = 'none'; foundBox.textContent = ''; }
 
-    // Extract possible number-ish token from QR raw content
     function extractDigits(raw){
       if(!raw) return '';
       raw = String(raw).trim();
@@ -132,7 +133,6 @@ iOS users, please check mail from TestFlight.
       return token;
     }
 
-    // Normalize token to wa.me digits (India-focused: 10-digit -> prefix default CC)
     function normalizeToWaNumber(token, defaultCountryCode){
       if(!token) return '';
       token = token.replace(/\s+/g,'').replace(/[-()]/g,'');
@@ -168,10 +168,8 @@ iOS users, please check mail from TestFlight.
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
         video.srcObject = stream;
-        track = stream.getVideoTracks()[0];
         scanning = true;
         setStatus('camera running — scanning for QR...');
-        // this start button click is a user gesture — improves chance of allowing subsequent navigation
         rafId = requestAnimationFrame(tick);
       } catch(err){
         console.error(err);
@@ -198,9 +196,7 @@ iOS users, please check mail from TestFlight.
       pendingWaLink = waLink;
       showFound('Detected number: ' + waNumber + ' — opening WhatsApp...');
       try {
-        // Use location.href for better chance to open app on mobile
         window.location.href = waLink;
-        // Show fallback if still on page after small delay
         setTimeout(()=>{
           if(!document.hidden){
             fallbackArea.style.display = 'block';
@@ -243,7 +239,6 @@ iOS users, please check mail from TestFlight.
       rafId = requestAnimationFrame(tick);
     }
 
-    // fallback button action
     fallbackOpen.addEventListener('click', () => {
       if(pendingWaLink){
         window.open(pendingWaLink, '_blank');
@@ -255,7 +250,6 @@ iOS users, please check mail from TestFlight.
       }
     });
 
-    // Buttons
     startBtn.addEventListener('click', startCamera);
     stopBtn.addEventListener('click', stopCamera);
 
